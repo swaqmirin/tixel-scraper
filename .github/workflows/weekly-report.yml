@@ -11,6 +11,8 @@ permissions:
 jobs:
   report:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - uses: actions/checkout@v4
@@ -18,13 +20,20 @@ jobs:
       - name: Send Telegram weekly check-in
         run: |
           NOW=$(TZ="Australia/Perth" date "+%A %-d %B %Y")
-          MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Tixel scraper is running. Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts sent this week. You will hear from me the moment something goes live."
+          SINCE=$(date -u -d '7 days ago' '+%Y-%m-%d')
+          COUNT=$(gh api \
+            -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/scrape.yml/runs" \
+            -f status=success \
+            -f "created=>=${SINCE}" \
+            --jq '.total_count')
+          MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Scraper ran ${COUNT} time(s) successfully in the past 7 days. Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts this week. You will hear from me the moment something goes live."
           curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${MESSAGE}"
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Heartbeat commit
         run: |
