@@ -81,6 +81,12 @@ def check_event(page, event):
 
 def main():
     test_mode = os.environ.get("TEST_MODE") == "true"
+    test_url = os.environ.get("TEST_URL")
+
+    events = EVENTS
+    if test_url:
+        events = [{"name": "Test event", "url": test_url}]
+        test_mode = True
 
     if not test_mode and not is_active_time():
         now = datetime.now(SYDNEY_TZ)
@@ -94,7 +100,7 @@ def main():
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
-        for event in EVENTS:
+        for event in events:
             print(f"Checking: {event['name']}...")
             tickets = check_event(page, event)
 
@@ -120,7 +126,7 @@ def main():
         send_telegram_message(
             token,
             chat_id,
-            f"Test run complete. Checked {len(EVENTS)} events. Found {total_tickets_found} ticket(s). Scraper is configured correctly.",
+            f"Test run complete. Checked {len(events)} event(s). Found {total_tickets_found} ticket(s). Scraper is configured correctly.",
         )
 
 

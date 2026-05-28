@@ -18,11 +18,7 @@ jobs:
       - name: Send Telegram weekly check-in
         run: |
           NOW=$(TZ="Australia/Perth" date "+%A %-d %B %Y")
-          MESSAGE="Weekly check-in — ${NOW}
-
-Tixel scraper is running. Monitoring 4 Olivia Dean events (Melbourne + Sydney).
-
-No ticket alerts sent this week. You'll hear from me the moment something goes live."
+          MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Tixel scraper is running. Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts sent this week. You will hear from me the moment something goes live."
           curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${MESSAGE}"

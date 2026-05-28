@@ -1,0 +1,33 @@
+name: Test Scraper (One-off)
+
+# Manual trigger only — not scheduled.
+# Run this to verify Playwright and Telegram are working correctly.
+# Checks the Laufey Perth show (known to have tickets) and sends results to Telegram.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
+
+      - name: Run test check (Laufey – Perth)
+        run: python tixel_scraper.py
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_URL: "https://tixel.com/au/music-tickets/2026/07/25/laufey-rac-arena-perth"
+          TEST_MODE: "true"
