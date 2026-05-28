@@ -16,16 +16,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Send Telegram weekly check-in
         run: |
           NOW=$(TZ="Australia/Perth" date "+%A %-d %B %Y")
-          SINCE=$(date -u -d '7 days ago' '+%Y-%m-%d')
-          COUNT=$(gh api \
-            -X GET "repos/${GITHUB_REPOSITORY}/actions/workflows/scrape.yml/runs" \
-            -f status=success \
-            -f "created=>=${SINCE}" \
-            --jq '.total_count')
+          SINCE=$(date -u -d '7 days ago' '+%Y-%m-%dT00:00:00Z')
+          COUNT=$(gh run list \
+            --workflow scrape.yml \
+            --status success \
+            --limit 2000 \
+            --json createdAt \
+            --jq "[.[] | select(.createdAt >= \"${SINCE}\")] | length" \
+            2>/dev/null || echo "unavailable")
           MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Scraper ran ${COUNT} time(s) successfully in the past 7 days. Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts this week. You will hear from me the moment something goes live."
           curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
