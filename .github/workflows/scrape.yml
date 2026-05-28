@@ -1,0 +1,35 @@
+name: Tixel Scraper
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes; Python script handles the AEST time window
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Send a test Telegram message after scraping (confirms everything works)'
+        type: boolean
+        default: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
+
+      - name: Run scraper
+        run: python tixel_scraper.py
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
