@@ -1,11 +1,9 @@
 name: Tixel Scraper
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'   # fallback only — cron-job.org is the primary trigger
   repository_dispatch:
     types: [scrape]          # triggered by cron-job.org every 4 minutes
-  workflow_dispatch:
+  workflow_dispatch:         # manual trigger / emergency backup
     inputs:
       test_mode:
         description: 'Send a test Telegram message after scraping (confirms everything works)'

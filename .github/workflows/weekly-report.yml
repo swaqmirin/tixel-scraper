@@ -1,11 +1,9 @@
 name: Weekly Report
 
 on:
-  schedule:
-    - cron: '0 1 * * 0'   # fallback only — cron-job.org is the primary trigger
   repository_dispatch:
     types: [weekly_report] # triggered by cron-job.org at 9am AWST every Sunday
-  workflow_dispatch:       # also triggerable manually for testing
+  workflow_dispatch:       # manual trigger / emergency backup
 
 permissions:
   contents: write          # needed to push the heartbeat commit
