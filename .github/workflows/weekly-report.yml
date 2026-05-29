@@ -2,7 +2,9 @@ name: Weekly Report
 
 on:
   schedule:
-    - cron: '0 1 * * 0'   # 9:00am AWST (UTC+8) every Sunday = 01:00 UTC
+    - cron: '0 1 * * 0'   # fallback only — cron-job.org is the primary trigger
+  repository_dispatch:
+    types: [weekly_report] # triggered by cron-job.org at 9am AWST every Sunday
   workflow_dispatch:       # also triggerable manually for testing
 
 permissions:
@@ -23,14 +25,19 @@ jobs:
         run: |
           NOW=$(TZ="Australia/Perth" date "+%A %-d %B %Y")
           SINCE=$(date -u -d '7 days ago' '+%Y-%m-%dT00:00:00Z')
-          COUNT=$(gh run list \
+          BREAKDOWN=$(gh run list \
             --workflow scrape.yml \
             --status success \
             --limit 2000 \
             --json createdAt \
-            --jq "[.[] | select(.createdAt >= \"${SINCE}\")] | length" \
-            2>/dev/null || echo "unavailable")
-          MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Scraper ran ${COUNT} time(s) successfully in the past 7 days. Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts this week. You will hear from me the moment something goes live."
+            --jq "
+              [.[] | select(.createdAt >= \"${SINCE}\")] |
+              group_by(.createdAt[0:10]) |
+              map(\"\(.[0].createdAt[0:10]): \(length) runs\") |
+              reverse | .[]
+            " 2>/dev/null || echo "unavailable")
+          COUNT=$(echo "${BREAKDOWN}" | grep -c "runs" || echo "?")
+          MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Scraper runs in the past 7 days (UTC dates):"$'\n'"${BREAKDOWN}"$'\n\n'"Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts this week. You will hear from me the moment something goes live."
           curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${MESSAGE}"
