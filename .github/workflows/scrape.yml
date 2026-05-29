@@ -2,7 +2,9 @@ name: Tixel Scraper
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes; Python script handles the AEST time window
+    - cron: '*/5 * * * *'   # fallback only — cron-job.org is the primary trigger
+  repository_dispatch:
+    types: [scrape]          # triggered by cron-job.org every 4 minutes
   workflow_dispatch:
     inputs:
       test_mode:
