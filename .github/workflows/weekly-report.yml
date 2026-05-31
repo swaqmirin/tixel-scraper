@@ -29,13 +29,14 @@ jobs:
             --limit 2000 \
             --json createdAt \
             --jq "
-              [.[] | select(.createdAt >= \"${SINCE}\")] |
-              group_by(.createdAt[0:10]) |
-              map(\"\(.[0].createdAt[0:10]): \(length) runs\") |
+              [.[] | select(.createdAt >= \"${SINCE}\") |
+                .createdAt | fromdateiso8601 + 28800 | strftime(\"%Y-%m-%d\")] |
+              group_by(.) |
+              map(\"\(.[0]): \(length) runs\") |
               reverse | .[]
             " 2>/dev/null || echo "unavailable")
           COUNT=$(echo "${BREAKDOWN}" | grep -c "runs" || echo "?")
-          MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Scraper runs in the past 7 days (UTC dates):"$'\n'"${BREAKDOWN}"$'\n\n'"Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts this week. You will hear from me the moment something goes live."
+          MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Scraper runs in the past 7 days (AWST dates):"$'\n'"${BREAKDOWN}"$'\n\n'"Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts this week. You will hear from me the moment something goes live."
           curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${MESSAGE}"
