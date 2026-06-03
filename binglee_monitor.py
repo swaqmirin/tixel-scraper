@@ -1,20 +1,12 @@
-import requests
+from playwright.sync_api import sync_playwright
 import os
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import requests
 
 BINGLEE_URL = "https://www.binglee.com.au/products/25k-laptop-pbank-100w-output-cy5128pbche"
 PERTH_TZ = ZoneInfo("Australia/Perth")
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-AU,en;q=0.9",
-}
 
 
 def get_credentials():
@@ -46,18 +38,32 @@ def send_telegram_message(token, chat_id, message):
 
 def check_binglee():
     print(f"Fetching: {BINGLEE_URL}")
-    try:
-        resp = requests.get(BINGLEE_URL, headers=HEADERS, timeout=30)
-        resp.raise_for_status()
-        html = resp.text.lower()
-        print(f"  HTTP {resp.status_code}, page length: {len(html)} chars")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        try:
+            page.goto(BINGLEE_URL, wait_until="domcontentloaded", timeout=30000)
+            time.sleep(3)
+            html = page.content().lower()
+            print(f"  Page loaded, length: {len(html)} chars")
 
-        in_stock = "backorder" not in html
-        print(f"  'backorder' found: {not in_stock}")
-        return in_stock, None
-    except Exception as e:
-        print(f"  Error fetching page: {e}")
-        return None, str(e)
+            has_backorder = "backorder" in html
+            has_sold_out = "sold out" in html
+
+            print(f"  'backorder' found: {has_backorder}")
+            print(f"  'sold out' found: {has_sold_out}")
+
+            if has_backorder:
+                return "backorder", None
+            elif has_sold_out:
+                return "sold_out", None
+            else:
+                return "in_stock", None
+        except Exception as e:
+            print(f"  Error loading page: {e}")
+            return None, str(e)
+        finally:
+            browser.close()
 
 
 def main():
@@ -65,23 +71,28 @@ def main():
     print(f"Bing Lee stock check — {now.strftime('%Y-%m-%d %H:%M %Z')}")
 
     token, chat_id = get_credentials()
-    in_stock, error = check_binglee()
+    status, error = check_binglee()
 
     if error:
-        # Silent on transient errors — don't spam on network failures
-        print(f"  Skipping notification due to error: {error}")
+        # Notify on persistent errors so we know the monitor is broken
+        send_telegram_message(
+            token, chat_id,
+            f"⚠️ Bing Lee monitor error — could not load page:\n{error}"
+        )
         return
 
-    if in_stock:
+    if status == "in_stock":
         message = (
-            "IN STOCK: Cygnett VertPwr 25000mAh power bank is now available at Bing Lee!\n\n"
+            "✅ IN STOCK: Cygnett VertPwr 25000mAh power bank is available at Bing Lee!\n\n"
             f"{BINGLEE_URL}\n\n"
-            "Price match Harvey Norman now and click & collect before you leave Saturday."
+            "Price match Harvey Norman and click & collect before Saturday."
         )
         send_telegram_message(token, chat_id, message)
         print("  IN STOCK — notification sent.")
+    elif status == "sold_out":
+        print("  Sold out. No notification sent.")
     else:
-        print("  Still showing backorder. No notification sent.")
+        print("  Still on backorder. No notification sent.")
 
 
 if __name__ == "__main__":
