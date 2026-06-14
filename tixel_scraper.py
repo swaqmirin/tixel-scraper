@@ -1,10 +1,7 @@
 from playwright.sync_api import sync_playwright
 import requests
 import os
-import sys
 import time
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 EVENTS = [
     {
@@ -24,17 +21,6 @@ EVENTS = [
         "url": "https://tixel.com/au/music-tickets/2026/10/10/olivia-dean-qudos-bank-arena-syd",
     },
 ]
-
-SYDNEY_TZ = ZoneInfo("Australia/Sydney")
-
-
-def is_active_time():
-    now = datetime.now(SYDNEY_TZ)
-    t = now.hour * 60 + now.minute
-    in_main_window = t >= 6 * 60 + 30 or t < 120  # 6:30am to 2:00am Sydney time
-    in_4am_window = 4 * 60 <= t < 4 * 60 + 5     # one check at 4:00am
-    return in_main_window or in_4am_window
-
 
 def get_credentials():
     token = os.environ.get("TELEGRAM_TOKEN")
@@ -87,11 +73,6 @@ def main():
     if test_url:
         events = [{"name": "Test event", "url": test_url}]
         test_mode = True
-
-    if not test_mode and not is_active_time():
-        now = datetime.now(SYDNEY_TZ)
-        print(f"Outside active hours ({now.strftime('%H:%M %Z')}). Skipping.")
-        sys.exit(0)
 
     token, chat_id = get_credentials()
     total_tickets_found = 0
