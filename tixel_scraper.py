@@ -31,7 +31,7 @@ SYDNEY_TZ = ZoneInfo("Australia/Sydney")
 def is_active_time():
     now = datetime.now(SYDNEY_TZ)
     t = now.hour * 60 + now.minute
-    in_main_window = t >= 6 * 60 + 30 or t < 60  # 6:30am to 1:00am Sydney time
+    in_main_window = t >= 6 * 60 + 30 or t < 120  # 6:30am to 2:00am Sydney time
     in_4am_window = 4 * 60 <= t < 4 * 60 + 5     # one check at 4:00am
     return in_main_window or in_4am_window
 
