@@ -23,11 +23,12 @@ jobs:
         run: |
           NOW=$(TZ="Australia/Perth" date "+%A %-d %B %Y")
           BREAKDOWN=$(python3 - <<'PYEOF'
-          import subprocess
+          import subprocess, os, sys, urllib.parse
           from datetime import datetime, timedelta, timezone
 
           AWST = timezone(timedelta(hours=8))
           UTC = timezone.utc
+          env = os.environ.copy()
           lines = []
 
           for i in range(6, -1, -1):
@@ -37,15 +38,18 @@ jobs:
               utc_start = day_start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
               utc_end = day_end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
               awst_date = day_start.strftime('%Y-%m-%d')
+              qs = urllib.parse.urlencode({
+                  'status': 'success',
+                  'per_page': '1',
+                  'created': f'{utc_start}..{utc_end}',
+              })
+              url = f'repos/swaqmirin/tixel-scraper/actions/workflows/scrape.yml/runs?{qs}'
               result = subprocess.run(
-                  ['gh', 'api',
-                   'repos/swaqmirin/tixel-scraper/actions/workflows/scrape.yml/runs',
-                   '-f', 'status=success',
-                   '-f', f'created={utc_start}..{utc_end}',
-                   '-f', 'per_page=1',
-                   '--jq', '.total_count'],
-                  capture_output=True, text=True
+                  ['gh', 'api', url, '--jq', '.total_count'],
+                  capture_output=True, text=True, env=env
               )
+              if result.stderr:
+                  print(f'{awst_date} error: {result.stderr[:120]}', file=sys.stderr)
               count = result.stdout.strip()
               if count.isdigit() and int(count) > 0:
                   lines.append(f'{awst_date}: {count} runs')
