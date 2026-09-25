@@ -223,13 +223,20 @@ def get_ticketek_counts(page, url):
         raise CheckFailed("HTTP 403 - Ticketek's bot protection turned this visit away")
     if response.status >= 400:
         raise CheckFailed(f"HTTP {response.status}")
-    try:
-        page.wait_for_function(
-            "() => /none available|sold out|tickets? left/i.test(document.body.innerText)",
-            timeout=30000,
-        )
-    except PlaywrightTimeout:
-        raise CheckFailed(f"event list never appeared (page title {page.title()!r}, url {page.url})")
+    # On a first visit the list sometimes never renders; a reload usually sorts it out.
+    for attempt in (1, 2):
+        try:
+            page.wait_for_function(
+                "() => /none available|sold out|tickets? left/i.test(document.body.innerText)",
+                timeout=20000,
+            )
+            break
+        except PlaywrightTimeout:
+            shown = " ".join(page.inner_text("body").split())[:200]
+            print(f"  Event list didn't appear (attempt {attempt}); page shows: {shown!r}")
+            if attempt == 2:
+                raise CheckFailed(f"event list never appeared; page shows {shown!r}")
+            page.reload(wait_until="domcontentloaded", timeout=45000)
 
     text = page.inner_text("body")
     rows = list(TICKETEK_ROW.finditer(text))
