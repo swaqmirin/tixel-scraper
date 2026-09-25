@@ -51,7 +51,9 @@ WARN_AFTER_FAILING_FOR = timedelta(minutes=30)
 
 STATE_FILE = os.environ.get("STATE_FILE", "state.json")
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+# Ticketek's bot protection turns away the default headless browser (it announces itself as
+# "HeadlessChrome"), so pages are loaded with the full Chromium build and a normal user agent.
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
 
 # Ticketek rows look like "9 Oct Fri 4:00 PM / <venue> / None Available" or "... / 1 ticket left".
 TICKETEK_ROW = re.compile(
@@ -215,8 +217,12 @@ def check_tixel(page, name, url, state, telegram):
 def get_ticketek_counts(page, url):
     """Returns tickets left per date, e.g. {"9 Oct": 0, "10 Oct": 2}."""
     response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
-    if response is None or response.status >= 400:
-        raise CheckFailed(f"HTTP {response.status if response else 'no response'}")
+    if response is None:
+        raise CheckFailed("no response")
+    if response.status == 403:
+        raise CheckFailed("HTTP 403 - Ticketek's bot protection turned this visit away")
+    if response.status >= 400:
+        raise CheckFailed(f"HTTP {response.status}")
     try:
         page.wait_for_function(
             "() => /none available|sold out|tickets? left/i.test(document.body.innerText)",
@@ -306,7 +312,30 @@ def record_health(state, site, error, telegram):
             entry["warned"] = True
 
 
-def run_checks(page, shows, extra_tixel, extra_ticketek, state, telegram, test_mode):
+class FreshPage:
+    """A page in its own browser session (no cookies from earlier checks), closed afterwards.
+
+    Ticketek flags a session that loads a second page straight away, and a page that failed
+    to load can derail the next navigation, so every check starts clean.
+    """
+
+    def __init__(self, browser):
+        self.browser = browser
+
+    def __enter__(self):
+        self.context = self.browser.new_context(
+            user_agent=USER_AGENT.format(major=self.browser.version.split(".")[0]),
+            locale="en-AU",
+            timezone_id="Australia/Sydney",
+            viewport={"width": 1280, "height": 900},
+        )
+        return self.context.new_page()
+
+    def __exit__(self, *exc):
+        self.context.close()
+
+
+def run_checks(browser, shows, extra_tixel, extra_ticketek, state, telegram, test_mode):
     found = 0
     errors = {"Ticketek Marketplace": [], "Tixel": []}
 
@@ -316,7 +345,8 @@ def run_checks(page, shows, extra_tixel, extra_ticketek, state, telegram, test_m
     for url, watching in ticketek_pages:
         print(f"Checking Ticketek Marketplace: {url}")
         try:
-            found += check_ticketek(page, url, watching, state, telegram)
+            with FreshPage(browser) as page:
+                found += check_ticketek(page, url, watching, state, telegram)
         except Exception as e:
             print(f"  Error: {e}")
             errors["Ticketek Marketplace"].append(str(e))
@@ -327,7 +357,8 @@ def run_checks(page, shows, extra_tixel, extra_ticketek, state, telegram, test_m
     for name, url in tixel_pages:
         print(f"Checking Tixel: {name}...")
         try:
-            found += check_tixel(page, name, url, state, telegram)
+            with FreshPage(browser) as page:
+                found += check_tixel(page, name, url, state, telegram)
         except Exception as e:
             print(f"  Error: {e}")
             errors["Tixel"].append(f"{name}: {e}")
@@ -360,34 +391,24 @@ def main():
             return
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent=USER_AGENT.format(major=browser.version.split(".")[0]),
-                locale="en-AU",
-                timezone_id="Australia/Sydney",
-                viewport={"width": 1280, "height": 900},
-            )
-            # Skip images, fonts and video: faster page loads, and we only read text.
-            context.route(
-                "**/*",
-                lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font")
-                else route.continue_(),
-            )
-            page = context.new_page()
-
+            browser = p.chromium.launch(channel="chromium", headless=True)
             # In test mode, check everything twice: the second pass should find nothing new.
             passes = []
             for n in range(2 if test_mode else 1):
                 if test_mode:
                     print(f"\n=== Test pass {n + 1} ===")
-                passes.append(run_checks(page, shows, extra_tixel, extra_ticketek, state, telegram, test_mode))
+                passes.append(run_checks(browser, shows, extra_tixel, extra_ticketek, state, telegram, test_mode))
 
             browser.close()
 
         if test_mode:
-            (first, errors), (second, _) = passes
-            problems = [f"{site}: {'; '.join(msgs)}" for site, msgs in errors.items() if msgs]
+            (first, errors1), (second, errors2) = passes
+            problems = [
+                f"Pass {n} - {site}: {'; '.join(msgs)}"
+                for n, errors in ((1, errors1), (2, errors2))
+                for site, msgs in errors.items()
+                if msgs
+            ]
             summary = (
                 f"Test run complete.\n\nFirst pass: {first} new (announced above).\n"
                 f"Second pass: {second} new (should be 0 - repeats are suppressed)."
