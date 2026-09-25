@@ -1,15 +1,25 @@
 name: Test Scraper (One-off)
 
 # Manual trigger only — not scheduled.
-# Run this to verify Playwright and Telegram are working correctly.
-# Checks the Laufey Perth show (known to have tickets) and sends results to Telegram.
+# Checks every Olivia Dean page plus the extra pages below, twice, starting with a blank memory.
+# Messages are tagged [TEST]. The first pass should announce anything currently listed;
+# the second pass should announce nothing (repeats are suppressed). Doesn't touch the real
+# scraper's memory, so it won't stop real alerts.
 
 on:
   workflow_dispatch:
+    inputs:
+      ticketek_url:
+        description: 'Extra Ticketek Marketplace page that has tickets (default: Conan Gray)'
+        default: 'https://marketplace.ticketek.com.au/purchase/searchlist/products?content_id=WASFSECG26'
+      tixel_url:
+        description: 'Extra Tixel event page that has tickets (optional)'
+        default: ''
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -26,10 +36,12 @@ jobs:
       - name: Install Playwright browser
         run: playwright install chromium --with-deps
 
-      - name: Run test check (Laufey – Perth)
+      - name: Run test check
         run: python tixel_scraper.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TEST_URL: "https://tixel.com/au/music-tickets/2026/07/25/laufey-rac-arena-perth"
           TEST_MODE: "true"
+          TEST_TICKETEK_URL: ${{ inputs.ticketek_url }}
+          TEST_TIXEL_URL: ${{ inputs.tixel_url }}
+          STATE_FILE: test-state.json

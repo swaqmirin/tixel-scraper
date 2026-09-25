@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write          # needed to push the heartbeat commit
+  actions: read            # needed to count scraper runs
 
 jobs:
   report:
@@ -19,48 +20,22 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Load scraper state (alerts sent this week)
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: scraper-state-${{ github.run_id }}
+          restore-keys: scraper-state-
+
       - name: Send Telegram weekly check-in
-        run: |
-          NOW=$(TZ="Australia/Perth" date "+%A %-d %B %Y")
-          BREAKDOWN=$(python3 - <<'PYEOF'
-          import subprocess, os, sys, urllib.parse
-          from datetime import datetime, timedelta, timezone
-
-          AWST = timezone(timedelta(hours=8))
-          UTC = timezone.utc
-          env = os.environ.copy()
-          lines = []
-
-          for i in range(6, -1, -1):
-              day_start = (datetime.now(AWST) - timedelta(days=i)).replace(
-                  hour=0, minute=0, second=0, microsecond=0)
-              day_end = day_start + timedelta(days=1)
-              utc_start = day_start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
-              utc_end = day_end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
-              awst_date = day_start.strftime('%Y-%m-%d')
-              qs = urllib.parse.urlencode({
-                  'status': 'success',
-                  'per_page': '1',
-                  'created': f'{utc_start}..{utc_end}',
-              })
-              url = f'repos/swaqmirin/tixel-scraper/actions/workflows/scrape.yml/runs?{qs}'
-              result = subprocess.run(
-                  ['gh', 'api', url, '--jq', '.total_count'],
-                  capture_output=True, text=True, env=env
-              )
-              if result.stderr:
-                  print(f'{awst_date} error: {result.stderr[:120]}', file=sys.stderr)
-              count = result.stdout.strip()
-              if count.isdigit() and int(count) > 0:
-                  lines.append(f'{awst_date}: {count} runs')
-
-          print('\n'.join(reversed(lines)) or 'unavailable')
-          PYEOF
-          )
-          MESSAGE="Weekly check-in — ${NOW}"$'\n\n'"Scraper runs in the past 7 days (AWST dates):"$'\n'"${BREAKDOWN}"$'\n\n'"Monitoring 4 Olivia Dean events (Melbourne + Sydney)."$'\n\n'"No ticket alerts this week. You will hear from me the moment something goes live."
-          curl -s "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${MESSAGE}"
+        run: python weekly_report.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

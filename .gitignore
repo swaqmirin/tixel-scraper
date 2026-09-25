@@ -2,3 +2,5 @@ venv/
 keys/
 __pycache__/
 *.pyc
+state.json
+test-state.json

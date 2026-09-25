@@ -2,17 +2,18 @@ name: Tixel Scraper
 
 on:
   repository_dispatch:
-    types: [scrape]          # triggered by cron-job.org every 4 minutes
+    types: [scrape]          # triggered by cron-job.org every 3 minutes
   workflow_dispatch:         # manual trigger / emergency backup
-    inputs:
-      test_mode:
-        description: 'Send a test Telegram message after scraping (confirms everything works)'
-        type: boolean
-        default: false
+
+# Runs share state (which listings were already announced), so never run two at once.
+concurrency:
+  group: scraper
+  cancel-in-progress: false
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -29,9 +30,23 @@ jobs:
       - name: Install Playwright browser
         run: playwright install chromium --with-deps
 
+      - name: Load state from previous run
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: scraper-state-${{ github.run_id }}
+          restore-keys: scraper-state-
+
       - name: Run scraper
+        id: scrape
         run: python tixel_scraper.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TEST_MODE: ${{ github.event.inputs.test_mode || 'false' }}
+
+      - name: Save state for next run
+        if: always() && steps.scrape.outputs.state_changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: scraper-state-${{ github.run_id }}-${{ github.run_attempt }}
