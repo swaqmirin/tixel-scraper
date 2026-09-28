@@ -34,6 +34,13 @@ jobs:
           key: scraper-state-${{ github.run_id }}
           restore-keys: scraper-state-
 
+      - name: Load fast scraper state
+        uses: actions/cache/restore@v4
+        with:
+          path: fast-state.json
+          key: fast-state-${{ github.run_id }}
+          restore-keys: fast-state-
+
       - name: Send Telegram weekly check-in
         run: python weekly_report.py
         env:

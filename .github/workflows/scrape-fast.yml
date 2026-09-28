@@ -1,19 +1,22 @@
-name: Tixel Scraper
+name: Tixel Scraper (fast)
 
 on:
   repository_dispatch:
-    types: [scrape]          # triggered by cron-job.org every 2 minutes (backup to scrape-fast.yml)
+    types: [scrape_fast]     # triggered by cron-job.org every 15 minutes
   workflow_dispatch:         # manual trigger / emergency backup
 
-# Runs share state (which listings were already announced), so never run two at once.
+# Each run checks every 30 seconds for 55 minutes. Only one runs at a time: the next
+# trigger waits in the queue and takes over as soon as the current run ends. GitHub
+# cancels any extra trigger that arrives while one is already waiting - that's expected.
+# Keeps its own memory (separate from scrape.yml), so each system announces a listing once.
 concurrency:
-  group: scraper
+  group: scraper-fast
   cancel-in-progress: false
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 65
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -33,9 +36,9 @@ jobs:
       - name: Load state from previous run
         uses: actions/cache/restore@v4
         with:
-          path: state.json
-          key: scraper-state-${{ github.run_id }}
-          restore-keys: scraper-state-
+          path: fast-state.json
+          key: fast-state-${{ github.run_id }}
+          restore-keys: fast-state-
 
       - name: Run scraper
         id: scrape
@@ -43,10 +46,12 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STATE_FILE: fast-state.json
+          RUN_MINUTES: 55
 
       - name: Save state for next run
         if: always() && steps.scrape.outputs.state_changed == 'true'
         uses: actions/cache/save@v4
         with:
-          path: state.json
-          key: scraper-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: fast-state.json
+          key: fast-state-${{ github.run_id }}-${{ github.run_attempt }}

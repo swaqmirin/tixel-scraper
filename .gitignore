@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 state.json
 test-state.json
+fast-state.json

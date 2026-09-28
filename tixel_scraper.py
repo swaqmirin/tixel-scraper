@@ -139,9 +139,9 @@ class Telegram:
 
 # --- State ------------------------------------------------------------------
 
-def load_state():
+def load_state(path=None):
     try:
-        with open(STATE_FILE) as f:
+        with open(path or STATE_FILE) as f:
             state = json.load(f)
         print(f"Loaded state: {len(state.get('seen', {}))} Tixel listing(s) already announced.")
     except FileNotFoundError:

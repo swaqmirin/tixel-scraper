@@ -8,14 +8,17 @@ import requests
 from tixel_scraper import SHOWS, STOP_CHECKING_AT, Telegram, load_state, now, plural, show_is_over
 
 AWST = ZoneInfo("Australia/Perth")
-EXPECTED_CHECKS_PER_DAY = 2500  # roughly one check every 30 seconds
+EXPECTED_CHECKS_PER_DAY = 3000  # fast scraper (~2,600) plus the backup (~480)
+
+# The fast scraper and the every-2-minutes backup each keep their own memory.
+WORKFLOWS = {"scrape-fast.yml": "fast-state.json", "scrape.yml": "state.json"}
 
 
-def count_failed_runs(start, end):
-    """Number of scraper runs created between start and end that failed."""
+def count_failed_runs(workflow, start, end):
+    """Number of runs of this workflow created between start and end that failed."""
     fmt = "%Y-%m-%dT%H:%M:%SZ"
     response = requests.get(
-        f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/scrape.yml/runs",
+        f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/{workflow}/runs",
         params={
             "status": "failure",
             "per_page": 1,
@@ -41,7 +44,7 @@ def check_counts(state):
         checks = state["checks"].get(day.date().isoformat())
         lines.append(f"{day:%a %d %b}: {checks:,} checks" if checks else f"{day:%a %d %b}: no data")
     try:
-        failed = count_failed_runs(week_start, today)
+        failed = sum(count_failed_runs(w, week_start, today) for w in WORKFLOWS)
         if failed:
             lines.append(f"Failed runs this week: {failed}")
     except Exception as e:
@@ -49,18 +52,33 @@ def check_counts(state):
     return lines
 
 
+def combined_state():
+    """Both scrapers' memories merged: checks added up, alerts from each."""
+    combined = {"checks": {}, "alerts": [], "failing": {}}
+    for path in WORKFLOWS.values():
+        state = load_state(path)
+        for day, n in state["checks"].items():
+            combined["checks"][day] = combined["checks"].get(day, 0) + n
+        combined["alerts"] += state["alerts"]
+        combined["failing"].update(state["failing"])
+    combined["alerts"].sort(key=lambda a: datetime.fromisoformat(a["at"]))
+    return combined
+
+
 def main():
-    state = load_state()
+    state = combined_state()
     week_ago = now() - timedelta(days=7)
     alerts = [a for a in state["alerts"] if datetime.fromisoformat(a["at"]) >= week_ago]
 
     parts = [f"Weekly check-in — {datetime.now(AWST):%A %-d %B %Y}"]
     parts.append(
         "Checks per day (AWST):\n" + "\n".join(check_counts(state))
-        + f"\n(Roughly {EXPECTED_CHECKS_PER_DAY:,} a day is normal: one check about every 30 seconds.)"
+        + f"\n(Roughly {EXPECTED_CHECKS_PER_DAY:,} a day is normal: a check about every 30 seconds,"
+        " plus the backup every 2 minutes.)"
     )
 
     if alerts:
+        # Each scraper announces a listing once, so the same listing usually appears twice.
         lines = []
         for a in alerts[-10:]:
             at = datetime.fromisoformat(a["at"]).astimezone(AWST)
