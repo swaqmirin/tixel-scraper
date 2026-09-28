@@ -41,7 +41,5 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TEST_MODE: "true"
-          TEST_TICKETEK_URL: ${{ inputs.ticketek_url }}
-          TEST_TIXEL_URL: ${{ inputs.tixel_url }}
+          RUN_MINUTES: 3
           STATE_FILE: test-state.json
