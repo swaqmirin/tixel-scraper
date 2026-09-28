@@ -1,6 +1,7 @@
 """Olivia Dean resale monitor: Tixel + Ticketek Marketplace -> Telegram.
 
-Run every few minutes by GitHub Actions (triggered from cron-job.org).
+Run by GitHub Actions (triggered from cron-job.org). Each run keeps checking every
+CHECK_EVERY for RUN_MINUTES, then exits so the next queued run can take over.
 Each listing is announced once: what has already been announced is kept in
 state.json, which the workflow carries from one run to the next using the
 GitHub Actions cache.
@@ -17,6 +18,7 @@ import time
 import requests
 
 SHOW_TZ = ZoneInfo("Australia/Sydney")  # Melbourne keeps the same clock
+REPORT_TZ = ZoneInfo("Australia/Perth")
 
 # Each show is checked until STOP_CHECKING_AT (local time) on the night of the show.
 SHOWS = [
@@ -48,6 +50,11 @@ TICKETEK_URL = "https://marketplace.ticketek.com.au/purchase/searchlist/products
 
 # Tell the user if a site keeps failing to load for this long (e.g. it has started blocking us).
 WARN_AFTER_FAILING_FOR = timedelta(minutes=30)
+
+# Time between the starts of checks within one run.
+CHECK_EVERY = timedelta(seconds=30)
+# After Ticketek fails to load, leave it alone this long rather than keep hitting it.
+TICKETEK_BACKOFF = timedelta(minutes=3)
 
 STATE_FILE = os.environ.get("STATE_FILE", "state.json")
 
@@ -147,12 +154,15 @@ def load_state():
     state.setdefault("ticketek", {})   # Ticketek date -> tickets left at last check
     state.setdefault("failing", {})    # site -> {"since": when it started failing, "warned": bool}
     state.setdefault("alerts", [])     # alerts sent, for the weekly report
+    state.setdefault("checks", {})     # Perth date -> checks done that day, for the weekly report
     return state
 
 
 def save_state(state):
     cutoff = now() - timedelta(days=60)
     state["alerts"] = [a for a in state["alerts"] if datetime.fromisoformat(a["at"]) >= cutoff]
+    oldest_day = (datetime.now(REPORT_TZ) - timedelta(days=14)).date().isoformat()
+    state["checks"] = {day: n for day, n in state["checks"].items() if day >= oldest_day}
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=1, sort_keys=True)
 
@@ -342,13 +352,18 @@ class FreshPage:
         self.context.close()
 
 
-def run_checks(browser, shows, extra_tixel, extra_ticketek, state, telegram, test_mode):
+def run_checks(browser, shows, extra_tixel, extra_ticketek, state, telegram, test_mode, include_ticketek=True):
     found = 0
-    errors = {"Ticketek Marketplace": [], "Tixel": []}
+    errors = {"Tixel": []}
 
     ticketek_pages = [(TICKETEK_URL, {ticketek_label(s): s["name"] for s in shows})]
     if extra_ticketek:
         ticketek_pages.append((extra_ticketek, None))
+    if include_ticketek:
+        errors["Ticketek Marketplace"] = []
+    else:
+        print("Skipping Ticketek Marketplace (backing off after a failed load).")
+        ticketek_pages = []
     for url, watching in ticketek_pages:
         print(f"Checking Ticketek Marketplace: {url}")
         try:
@@ -376,6 +391,36 @@ def run_checks(browser, shows, extra_tixel, extra_ticketek, state, telegram, tes
     return found, errors
 
 
+def keep_checking(browser, state, telegram):
+    """Checks every CHECK_EVERY until RUN_MINUTES are up (a single check if unset)."""
+    stop_at = now() + timedelta(minutes=float(os.environ.get("RUN_MINUTES") or 0))
+    ticketek_retry_at = None
+    while True:
+        started = now()
+        shows = [s for s in SHOWS if not show_is_over(s, started)]
+        if not shows:
+            break
+        print(f"\n--- Check at {started:%H:%M:%S} Sydney time ---")
+
+        include_ticketek = ticketek_retry_at is None or started >= ticketek_retry_at
+        _, errors = run_checks(browser, shows, None, None, state, telegram, False, include_ticketek)
+        if errors.get("Ticketek Marketplace"):
+            ticketek_retry_at = now() + TICKETEK_BACKOFF
+        elif include_ticketek:
+            ticketek_retry_at = None
+
+        day = datetime.now(REPORT_TZ).date().isoformat()
+        state["checks"][day] = state["checks"].get(day, 0) + 1
+        save_state(state)  # so a crash or timeout mid-run doesn't lose what was announced
+
+        next_at = started + CHECK_EVERY
+        if next_at >= stop_at:
+            break
+        pause = (next_at - now()).total_seconds()
+        if pause > 0:
+            time.sleep(pause)
+
+
 def main():
     test_mode = os.environ.get("TEST_MODE") == "true"
     extra_tixel = os.environ.get("TEST_TIXEL_URL") if test_mode else None
@@ -399,12 +444,14 @@ def main():
 
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chromium", headless=True)
-            # In test mode, check everything twice: the second pass should find nothing new.
-            passes = []
-            for n in range(2 if test_mode else 1):
-                if test_mode:
+            if test_mode:
+                # Check everything twice: the second pass should find nothing new.
+                passes = []
+                for n in range(2):
                     print(f"\n=== Test pass {n + 1} ===")
-                passes.append(run_checks(browser, shows, extra_tixel, extra_ticketek, state, telegram, test_mode))
+                    passes.append(run_checks(browser, shows, extra_tixel, extra_ticketek, state, telegram, test_mode))
+            else:
+                keep_checking(browser, state, telegram)
 
             browser.close()
 

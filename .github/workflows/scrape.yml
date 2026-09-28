@@ -2,10 +2,13 @@ name: Tixel Scraper
 
 on:
   repository_dispatch:
-    types: [scrape]          # triggered by cron-job.org every 3 minutes
+    types: [scrape]          # triggered by cron-job.org every 5 minutes
   workflow_dispatch:         # manual trigger / emergency backup
 
-# Runs share state (which listings were already announced), so never run two at once.
+# Each run checks every 30 seconds for 55 minutes. Runs share state (which listings were
+# already announced), so only one runs at a time: the next trigger waits in the queue and
+# takes over as soon as the current run ends. Extra triggers while one is waiting are
+# cancelled by GitHub - that's expected.
 concurrency:
   group: scraper
   cancel-in-progress: false
@@ -13,7 +16,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 65
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -43,6 +46,7 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_MINUTES: 55
 
       - name: Save state for next run
         if: always() && steps.scrape.outputs.state_changed == 'true'
